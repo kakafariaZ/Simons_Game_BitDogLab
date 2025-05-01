@@ -18,8 +18,22 @@
 
 // Notas musicais
 #define NOTA_LA 440
-#define NOTA_SI 494
-#define NOTA_DO 523
+#define NOTA_SI 247
+#define NOTA_RE 293
+
+// Notas musicais em Hz (oitava correta para a melodia)
+#define DO3  131
+#define RE3  147
+#define MI3  165
+#define FA3  175
+#define SOL3 196
+#define LA3  220
+#define SI3  247
+#define DO4  262  // Do' (agudo)
+#define RE4  294
+#define MI4  330
+#define SOLs3 208 // Sol#
+#define LAs3 233 // La#
 
 // Tamanho máximo da sequência
 #define MAX_SEQ 100
@@ -39,15 +53,50 @@ void buzzer_init() {
     pwm_set_enabled(slice_num, true);
 }
 
-// Tocar nota por X ms
 void tocar_nota(int freq, int duracao_ms) {
+    if (freq <= 0) {
+        sleep_ms(duracao_ms);
+        return;
+    }
+
     uint slice_num = pwm_gpio_to_slice_num(BUZZER_A);
-    pwm_set_wrap(slice_num, 125000000 / freq);
-    pwm_set_chan_level(slice_num, PWM_CHAN_A, (125000000 / freq) / 2);
-    sleep_ms(duracao_ms);
-    pwm_set_chan_level(slice_num, PWM_CHAN_A, 0);
+    uint chan = pwm_gpio_to_channel(BUZZER_A);
+    
+    // Configuração precisa do PWM
+    float div = 125.0f; // Divisor de clock fixo para melhor precisão
+    uint16_t wrap = (125000000 / div) / freq - 1;
+    
+    pwm_set_clkdiv(slice_num, div);
+    pwm_set_wrap(slice_num, wrap);
+    pwm_set_chan_level(slice_num, chan, wrap / 2);
+    
+    // Usa busy_wait para timing preciso
+    busy_wait_us(duracao_ms * 1000);
+    pwm_set_chan_level(slice_num, chan, 0); // Silencia
+    busy_wait_us(50000); // Pequena pausa entre notas (50ms)
+}
+
+
+// Melodia Game Over melhorada
+void tocar_derrota() {
+    // Do' Sol Mi La Si La Sol# La# Sol# Mi Re Mi
+    tocar_nota(DO4, 200);   // Do'
+    tocar_nota(SOL3, 200);  // Sol
+    tocar_nota(MI3, 200);   // Mi
+    tocar_nota(LA3, 250);   // La
+    tocar_nota(SI3, 280);   // Si
+    tocar_nota(LA3, 300);   // La hjhj
+    tocar_nota(SOLs3, 330); // Sol#
+    tocar_nota(LAs3, 360);  // La#
+    tocar_nota(SOLs3, 100); // Sol#
+    tocar_nota(MI3, 50);   // Mi
+    tocar_nota(RE3, 100);   // Re
+    tocar_nota(MI3, 450);   // Mi (mais longo no final)
+    
+    // Pequena pausa no final
     sleep_ms(100);
 }
+
 
 // Mostrar sequência de LEDs + som
 void mostrar_sequencia(uint8_t *seq, uint8_t tamanho) {
@@ -65,7 +114,7 @@ void mostrar_sequencia(uint8_t *seq, uint8_t tamanho) {
                 break;
             case 2:
                 gpio_put(LED_B, 1);
-                tocar_nota(NOTA_DO, 300);
+                tocar_nota(NOTA_RE, 300);
                 gpio_put(LED_B, 0);
                 break;
         }
@@ -116,7 +165,7 @@ void ler_entrada(uint8_t *entrada, uint8_t tamanho) {
         } else if (botao_pressionado(BUT_JOY)) {
             entrada[contador++] = 2;
             gpio_put(LED_B, 1);
-            tocar_nota(NOTA_DO, 200);
+            tocar_nota(NOTA_RE, 200);
             gpio_put(LED_B, 0);
         }
         sleep_ms(50);
@@ -140,6 +189,7 @@ void piscar_todos(int vezes) {
 int main() {
     stdio_init_all();
 
+    // Inicializa GPIOs
     gpio_init(LED_R); gpio_set_dir(LED_R, GPIO_OUT);
     gpio_init(LED_G); gpio_set_dir(LED_G, GPIO_OUT);
     gpio_init(LED_B); gpio_set_dir(LED_B, GPIO_OUT);
@@ -157,12 +207,17 @@ int main() {
     srand((uint32_t)time_us_32());
 
     while (1) {
+        // Adiciona novo elemento à sequência
         sequencia[fase - 1] = rand() % 3;
+        
+        // Mostra a sequência ao jogador
         mostrar_sequencia(sequencia, fase);
 
+        // Lê a entrada do jogador
         uint8_t entrada[MAX_SEQ] = {0};
         ler_entrada(entrada, fase);
 
+        // Verifica se a entrada está correta
         bool erro = false;
         for (int i = 0; i < fase; i++) {
             if (entrada[i] != sequencia[i]) {
@@ -172,11 +227,14 @@ int main() {
         }
 
         if (!erro) {
+            // Acertou - avança para próxima fase
             fase++;
             sleep_ms(1000);
         } else {
+            // Errou - game over
             piscar_todos(3);
-            fase = 1;
+            tocar_derrota(); // Toca a melodia do Super Mario
+            fase = 1; // Reinicia o jogo
             sleep_ms(1000);
         }
     }
